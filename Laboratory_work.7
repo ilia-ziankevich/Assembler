@@ -1,0 +1,554 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;this must be in file: Arifm.asm (arifm.exe after compilation)
+
+overlay segment para public 'code'
+    assume cs:overlay
+    main:
+        cmp cx,1
+        je c1
+        cmp cx,2
+        je c2
+        cmp cx,3
+        je c3
+        cmp cx,4
+        je c4
+        c1:
+        add ax,bx
+        jmp cont
+        c2:
+        sub ax,bx
+        jmp cont
+        c3:
+        imul bx
+        jmp cont
+        c4:
+        idiv bx
+        jmp cont
+        cont:
+    retf
+overlay ends
+end main
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;main programm
+
+.model small
+.stack 256h
+
+segment over
+over ends
+ 
+.data
+    null_sym equ 48
+    nine_sym equ 57
+    plus_sym equ 43
+    minus_sym equ 45
+    mult_sym equ 42
+    space_sym equ 32
+    divide_sym equ 47
+    dollar equ 36 
+    path db "Arifm.exe",0 
+    over_pointer1 dw 0
+    over_pointer2 dw 0 
+    filename db "Arifm.txt",0
+    buffer_1 db 10
+    len_1 db 0
+    n db 9 dup("$")
+    n_num dw 1 
+    p db "+$"
+    opened db "File has been opened!",10,13,'$'
+    notation db "Reversed polish notation exprecion: ",'$'
+    expression db "Your expression: $" 
+    result db "Result = $"
+    error_command_line db "Illegal number N!",'$'
+    error_file db "File not found!",'$'
+    error_string db "String in your file is incorrect!",'$'
+    error_small_string db "String in your file is too small!",'$'
+    endl db 10,13,'$'
+    file_handle dw 0
+    buffer_0 db 2
+    len_0 db 0                                    
+    symbol db 1 dup("$")
+    buffer_2 db 250
+    len_2 db 0
+    string db 249 dup("$")
+    counter db 0
+    buffer_3 db 250
+    len_3 db 0
+    polish_notation db 249 dup("$")
+    stack_len db 0 
+.code
+;-------------------
+valid macro str
+    xor di,di
+    check_cycle:
+        mov al,str[di]         
+        cmp al,dollar
+        je macro_exit
+        cmp al,null_sym
+        jb jump_1
+        cmp al,nine_sym
+        ja jump_1 
+        inc di    
+    jmp check_cycle     
+    macro_exit:
+endm
+;-------------------
+atoi proc near
+    xor di,di
+    xor ax,ax
+    xor bx,bx
+    xor dx,dx
+    cycl:
+    mov al,n[di]
+    inc di     
+    cmp al,36
+    je yw
+    push ax
+    mov ax,bx
+    mov bx,10
+    mul bx
+    mov bx,ax
+    pop ax
+    sub al,48
+    add bl,al
+    jmp cycl
+    yw:
+atoi endp
+;------------------ 
+;number must be in AX register
+itoa macro 
+    xor di,di
+    xor dx,dx
+    xor cx,cx
+    itoa_cycle:
+        mov bx,10
+        div bx
+        add dl,48
+        mov buffer_1[di],dl
+        inc di
+        xor dx,dx
+        cmp ax,10
+        jb end_itoa_cycle   
+    jmp itoa_cycle
+    end_itoa_cycle:
+    add ax,48
+    mov buffer_1[di],al
+    inc di
+    mov buffer_1[di],dollar
+    xor cx,cx
+    xor dx,dx
+    skip_cycle:
+        mov di,cx
+        mov al,buffer_1[di]
+        inc cx
+        cmp al,dollar
+    jne skip_cycle
+    dec cx
+    dec cx
+    reverse_cycle:
+        mov di,dx
+        mov al,buffer_1[di]
+        mov di,cx
+        mov ah,buffer_1[di]
+        mov buffer_1[di],al
+        mov di,dx
+        mov buffer_1[di],ah
+        inc dx
+        dec cx
+        cmp dx,cx
+    jb reverse_cycle
+endm
+;------------------
+clear proc near
+    mov ah,0
+    mov al,3
+    int 10h  
+    mov ah,02
+    mov dh,0
+    mov dl,0
+    int 10h
+    ret
+clear endp
+;-------------------
+cout macro str
+    mov ah,09h
+    lea dx,str
+    int 21h       
+endm
+;-------------------
+cin macro str
+    mov ah,0ah
+    lea dx,str
+    int 21h
+    xor si,si
+    loop_end:               
+        mov al,str[si]
+        cmp al,13
+        je cn
+        inc si
+        jmp loop_end
+    cn:
+    mov str[si],0    
+endm 
+;-------------------
+main:
+    mov ax,@data
+    mov ds,ax
+    ;getting arguments from command line
+    call clear    
+    xor cx,cx
+    xor di,di
+    mov si,80h
+    command_line_input:
+        mov al,es:[si]
+        inc si
+        cmp al,0                 
+        je command_line_end        
+        mov buffer_1[di],al
+        inc di
+        jmp command_line_input
+    command_line_end:
+    xor si,si
+    xor di,di
+    xor si,si
+    loop_end_e:               
+        mov al,buffer_1[si]
+        cmp al,13
+        je cn1
+        inc si
+        jmp loop_end_e
+    cn1:
+    mov buffer_1[si],dollar    
+    valid n
+    jmp jump_2
+    jump_1:
+    jmp error_1
+    jump_2:
+    
+    ;opening a file
+    mov dx,offset filename
+    mov ah,3dh
+    mov al,00000010b
+    int 21h
+    jc jump_3
+    mov file_handle,ax 
+    
+    call atoi
+    cmp bx,2
+    jb jump_1
+    mov n_num,bx
+    
+    jmp jump_4
+    jump_3:
+    jmp error_2
+    jump_4:
+    
+    ;reading necessary numbers from file
+    xor di,di  
+    string_copy:
+        dec n_num
+        mov ah,3fh
+        mov bx,file_handle
+        mov cx,1
+        lea dx,buffer_0
+        int 21h
+        cmp ax,0
+        je jump_7
+        mov dl,buffer_0[0]
+        cmp dl,null_sym
+        jbe jump_5
+        cmp dl,nine_sym
+        ja jump_5
+        mov counter,4
+        mov buffer_2[di],dl
+        inc di
+        
+        jmp jump_6
+        jump_5:
+        jmp error_3
+        jump_6:
+        jmp jump_8
+        jump_7:
+        jmp error_4
+        jump_8:
+        
+        search:
+            cmp counter,0
+            je cont1 
+            mov ah,3fh
+            mov cx,1
+            mov bx,file_handle
+            lea dx,buffer_0
+            int 21h            
+            cmp ax,0
+            je jump_7
+            mov dl,buffer_0[0]            
+            cmp dl,plus_sym
+            je cont1
+            cmp dl,minus_sym
+            je cont1
+            cmp dl,mult_sym
+            je cont1
+            cmp dl,divide_sym
+            je cont1
+            cmp dl,null_sym
+            jb jump_5
+            cmp dl,nine_sym
+            ja jump_5
+            ;mov ah,02 ;!!!
+            ;int 21h ;!!!
+            mov buffer_2[di],dl
+            inc di
+            dec counter    
+        jmp search
+        cont1:
+        mov ax,4201h
+        mov bx,file_handle
+        mov cx,-1
+        mov dx,-1
+        int 21h
+        cont2:        
+        cmp n_num,0
+        je string_copy_exit
+        mov ah,3fh
+        mov cx,1
+        lea dx,buffer_0
+        mov bx,file_handle
+        int 21h
+        mov dl,buffer_0[0]            
+        cmp dl,plus_sym
+        je good_input
+        cmp dl,minus_sym
+        je good_input
+        cmp dl,mult_sym
+        je good_input
+        cmp dl,divide_sym
+        je good_input
+        jmp jump_5
+        good_input:
+        mov buffer_2[di],dl
+        inc di    
+    jmp string_copy
+    string_copy_exit:
+    
+    ;loading overlay
+    mov ax,@data
+    mov es,ax
+    mov ax,over
+    mov [over_pointer2],ax
+    lea bx,over_pointer2
+    lea dx,path
+    mov ax,4B03h
+    int 21h   
+    mov ax,over
+    mov [over_pointer1 + 2],ax
+    
+    ;creating polish notation
+    xor di,di
+    xor si,si
+    polish_notation_cycle:
+        number:
+            xor ax,ax
+            xor bx,bx
+            mov al,buffer_2[si]
+            inc si
+            cmp al,dollar
+            je polish_notation_cycle_exit 
+            cmp al,null_sym
+            jb sign
+            mov buffer_3[di],al
+            inc di
+        jmp number
+        sign:
+        mov buffer_3[di],space_sym
+        inc di
+        sign_cycle:
+            cmp stack_len,0
+            je sign_cycle_end
+            cmp al,plus_sym
+            je sign_expr1
+            cmp al,minus_sym
+            je sign_expr1
+            cmp al,mult_sym
+            je sign_expr2
+            cmp al,divide_sym
+            je sign_expr2 
+            
+            sign_expr1:
+                pop bx
+                dec stack_len
+                mov buffer_3[di],bl
+                inc di
+                mov buffer_3[di],space_sym
+                inc di
+                jmp sign_cycle
+            sign_expr2:
+                pop bx
+                dec stack_len
+                cmp bl,mult_sym
+                je sign_expr2_2
+                cmp bl,divide_sym
+                je sign_expr2_2
+                cmp bl,plus_sym
+                je sign_expr2_1
+                cmp bl,minus_sym
+                je sign_expr2_1
+                sign_expr2_1:
+                push bx
+                inc stack_len
+                jmp sign_cycle_end
+                sign_expr2_2:
+                mov buffer_3[di],bl
+                inc di
+                mov buffer_3[di],space_sym
+                inc di
+                jmp sign_cycle
+        sign_cycle_end:
+        push ax
+        inc stack_len        
+    jmp polish_notation_cycle
+    polish_notation_cycle_exit:
+    mov buffer_3[di],space_sym
+    inc di
+    stack_release:
+        cmp stack_len,0
+        je stack_release_end
+        pop bx
+        dec stack_len
+        mov buffer_3[di],bl
+        inc di
+        mov buffer_3[di],space_sym
+        inc di
+    jmp stack_release
+    stack_release_end:
+    dec di
+    mov buffer_3[di],dollar
+    
+    ;solving expression
+    xor di,di
+    xor si,si 
+    solving_cycle: 
+        mov al,buffer_3[si]
+        inc si
+        cmp al,dollar
+        je solving_cycle_end_j
+        cmp al,space_sym
+        je number_creation
+        cmp al,plus_sym
+        je operation
+        cmp al,minus_sym
+        je operation
+        cmp al,mult_sym
+        je operation
+        cmp al,divide_sym
+        je operation
+        mov buffer_1[di],al
+        inc di
+        mov buffer_1[di],dollar
+        
+        jmp solving_cycle
+        
+        number_creation:
+        mov al,buffer_1[0]
+        cmp al,dollar
+        je solving_cycle
+        
+        xor di,di
+        xor ax,ax
+        xor bx,bx
+        xor dx,dx
+        cycl1:
+        mov al,buffer_1[di]
+        inc di     
+        cmp al,36
+        je yw1
+        push ax
+        mov ax,bx
+        mov bx,10
+        mul bx
+        mov bx,ax
+        pop ax
+        sub al,48
+        add bl,al
+        jmp cycl1
+        yw1:
+        
+        push bx 
+        inc stack_len
+        xor di,di
+        mov buffer_1[0],dollar
+        jmp solving_cycle
+        solving_cycle_end_j:
+        jmp solving_cycle_end
+        
+        operation:                           
+        cmp al,plus_sym
+        je o1
+        cmp al,minus_sym
+        je o2
+        cmp al,mult_sym
+        je o3
+        cmp al,divide_sym
+        je o4
+        o1:
+        mov cx,1
+        jmp continue
+        o2:
+        mov cx,2
+        jmp continue
+        o3:
+        mov cx,3
+        jmp continue
+        o4:
+        mov cx,4
+        jmp continue
+        continue:        
+        pop bx
+        dec stack_len 
+        pop ax
+        dec stack_len
+       
+        call dword ptr [over_pointer1]        
+        push ax
+        
+        inc stack_len
+        jmp solving_cycle
+    solving_cycle_end:
+    pop ax
+    itoa
+    cout opened
+    cout endl
+    cout expression
+    cout buffer_2
+    cout endl
+    cout endl
+    cout notation
+    cout buffer_3
+    cout endl
+    cout endl
+    cout result
+    cout buffer_1
+    cout endl
+    jmp exit
+error_1:
+    call clear
+    cout error_command_line
+    jmp exit
+error_2:
+    call clear
+    cout error_file
+    jmp exit
+error_3:
+    call clear
+    cout error_string
+    jmp exit
+error_4:
+    call clear
+    cout error_small_string
+    jmp exit 
+exit: 
+    mov ax,4c00h
+    int 21h   
+end main
+
+   
